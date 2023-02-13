@@ -69,7 +69,7 @@
 
 ## About The Project
 
-> I used to study `Deblurring` and `Video Super-Resolution`, but I am very interested in `model deployment`. I found that there are very few deployment cases for `low-level vision` tasks, which may be due to the low demand for such tasks and the loss of accuracy.
+> I used to study `Deblurring` and `Video Super-Resolution`, but I am very interested in `model deployment`. I found that there are very few deployment cases for `low-level vision` tasks, which may be due to the low demand for such tasks and the loss of accuracy.<br/>
 > After learning `TensorRT` and `NCNN`, which are excellent reasoning frameworks, I decided to make a deployment case of `low-level vision` and open source it.
 
 This repo will be dedicated to providing deployment cases in the `low-level-vision` field. Including using inference frameworks such as `TensorRT` and `NCNN` to deploy tasks such as `Deblurring`, `Image Super-resolution`, `Video super-resolution`,  `Image Denoising`.
@@ -160,7 +160,7 @@ This is an example of how to list things you need to use the software and how to
 
 ## Usage
 
-Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
+Use this space to show useful examples of how a project can be used.
 
 Demo of TensorRT-Spynet
 
