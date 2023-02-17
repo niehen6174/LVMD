@@ -29,7 +29,8 @@
 #include <sstream>
 #include <vector>
 #include "NvInfer.h"
-#include "plugin/instanceNormalizationPlugin.h"
+#include "../plugin/instanceNormalizationPlugin.h"
+#include <dirent.h>
 using namespace nvinfer1;
 
 // TensorRT weight files have a simple space delimited format:
@@ -94,14 +95,15 @@ static inline int read_files_in_dir(const char *p_dir_name, std::vector<std::str
 }
 
 
-ITensor* convInLeaky(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input,  int outch, int ksize, int s, int p, int index_, std::string pre_index) {
+ITensor* convInLeaky(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* input,  int outch, int ksize, int s, int p, int index_, std::string pre_index) {
     //Weights emptywts{DataType::kFLOAT, nullptr, 0};  bias 为0的情况下用
-    IConvolutionLayer* conv1 = network->addConvolutionNd(input, outch, DimsHW{ksize, ksize}, weightMap[pre_index + std::to_string(index_) + ".weight"], weightMap[pre_index + std::to_string(index_) + ".bias"]);
+    IConvolutionLayer* conv1 = network->addConvolutionNd(*input, outch, DimsHW{ksize, ksize}, 
+                                weightMap[pre_index + std::to_string(index_) + ".weight"], weightMap[pre_index + std::to_string(index_) + ".bias"]);
     assert(conv1);
     conv1->setStrideNd(DimsHW{s, s});
     conv1->setPaddingNd(DimsHW{p, p});
+    ITensor* conv1_output = conv1->getOutput(0);
     index_++;
-
     IPluginCreator* addIN_creator = getPluginRegistry()->getPluginCreator("InstanceNormalization_TRT", "1");
     // 插件的name，getPluginName函数的返回值
     //const PluginFieldCollection* pluginData = addscalar_creator->getFieldNames();
@@ -119,44 +121,42 @@ ITensor* convInLeaky(INetworkDefinition *network, std::map<std::string, Weights>
     //无参数的 create方法
     //IPluginV2 *addscalar_plugin = addscalar_creator->createPlugin("AddScalaPlugin", pluginData,);
     //这个name可以随便设置 不影响。
-    if(pre_index.size == 1)
-    std::string pre_plugin = "";
-    else
-    std::string pre_plugin = "res";
-    IPluginV2 *addIN_plugin = addIN_creator->createPlugin("INplugin" + pre_plugin + std::to_string(index_), &fc);
-    IPluginV2Layer* addIN_layer = network->addPluginV2(conv1->getOutput(0), 1, *addIN_plugin);
+    
+    IPluginV2 *addIN_plugin = addIN_creator->createPlugin("INplugin", &fc);
+    IPluginV2Layer* addIN_layer = network->addPluginV2(&conv1_output, 1, *addIN_plugin);
     //addscalar_layer->setName("addscalar_layer");
     ITensor* IN_resu = addIN_layer->getOutput(0);
     // 添加relu激活函数
-    auto lr = network->addActivation(IN_resu, ActivationType::kLEAKY_RELU);
+    IActivationLayer* lr = network->addActivation(*IN_resu, ActivationType::kLEAKY_RELU);
     lr->setAlpha(0.1);
 
-    return lr->output();
+    return lr->getOutput(0);
 }
 ITensor* ResBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int index_)
 {
    // 这里没有使用reflectpad 直接在卷积的时候featuremap 填充0
-    std::string pre_idx = std::to_string(index_) + "conv_block."
+    std::string pre_idx = std::to_string(index_) + "conv_block.";
     ITensor* out_conv = convInLeaky(network, weightMap, x, 256, 3, 1, 1, 1, pre_idx);
-    IElementWiseLayer* ew = network->addElementWise(*out_conv->getOutput(0), *x, ElementWiseOperation::kSUM);
+    IElementWiseLayer* ew = network->addElementWise(*out_conv, *x, ElementWiseOperation::kSUM);
 
     return ew->getOutput(0);
 }
 //ConvTranspose2d -- InstanceNorm2d -- ReLU
 
-ITensor* convTranInLeaky(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input,  int outch, int ksize, int s, int p, int index_, std::string pre_index) {
+ITensor* convTranInLeaky(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* input,  int outch, int ksize, int s, int p, int index_, std::string pre_index) {
     
-    IConvolutionLayer* conv1 = network->addDeconvolutionNd(input, outch, DimsHW{ksize, ksize}, weightMap[pre_index + std::to_string(index_) + ".weight"], weightMap[pre_index + std::to_string(index_) + ".bias"]);
+    IDeconvolutionLayer* conv1 = network->addDeconvolutionNd(*input, outch, DimsHW{ksize, ksize}, 
+                                weightMap[pre_index + std::to_string(index_) + ".weight"], weightMap[pre_index + std::to_string(index_) + ".bias"]);
     assert(conv1);
     conv1->setStrideNd(DimsHW{s, s});
     conv1->setPaddingNd(DimsHW{p, p});
     ITensor* conv1_output = conv1->getOutput(0);
     auto const shape = conv1_output->getDimensions();
     assert(shape.nbDims == 4);
-    ISliceLayer* Deconv_outpad = network->addSlice(prep,(0, 0, 0, 0), (shape.d[0] , shape.d[1], shape.d[2]+1, shape.d[3]+1), (1, 1, 1, 1));
-    Deconv_outpad->setmode(SliceMode::kCLAMP);
+    ISliceLayer* Deconv_outpad = network->addSlice(*conv1_output,Dims{0, 0, 0, 0}, Dims{shape.d[0] , shape.d[1], shape.d[2]+1, shape.d[3]+1}, Dims{1, 1, 1, 1});
+    Deconv_outpad->setMode(nvinfer1::SliceMode::kWRAP); //kCLAMP  tensorRT 7.3 don't have kCLAMP
     index_++;
-    
+    ITensor* Deconv_outpad_tensor = Deconv_outpad->getOutput(0);
 
     IPluginCreator* addIN_creator = getPluginRegistry()->getPluginCreator("InstanceNormalization_TRT", "1");
     std::vector<nvinfer1::PluginField> f;
@@ -171,11 +171,11 @@ ITensor* convTranInLeaky(INetworkDefinition *network, std::map<std::string, Weig
     fc.nbFields = f.size();
     fc.fields = f.data();
    
-    IPluginV2 *addIN_plugin = addIN_creator->createPlugin("INplugin" + std::to_string(index_), &fc);
-    IPluginV2Layer* addIN_layer = network->addPluginV2(Deconv_outpad->getOutput(0), 1, *addIN_plugin);
+    IPluginV2 *addIN_plugin = addIN_creator->createPlugin("INplugin2", &fc);
+    IPluginV2Layer* addIN_layer = network->addPluginV2(&Deconv_outpad_tensor, 1, *addIN_plugin);
     ITensor* IN_resu = addIN_layer->getOutput(0);
-    auto lr = network->addActivation(IN_resu, ActivationType::kLEAKY_RELU);
+    IActivationLayer* lr = network->addActivation(*IN_resu, ActivationType::kLEAKY_RELU);
     lr->setAlpha(0.1);
 
-    return lr->output();
+    return lr->getOutput(0);
 }

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.6)
 
-project(instanceNorm)
+project(deblurgan)
 
 add_definitions(-std=c++11)
 
@@ -23,17 +23,17 @@ link_directories(/usr/lib/x86_64-linux-gnu/)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Ofast -Wfatal-errors -D_MWAITXINTRIN_H_INCLUDED")
 
 
-cuda_add_library(myplugin SHARED ${PROJECT_SOURCE_DIR}/instanceNormalizationPlugin.cpp)
+cuda_add_library(myplugin SHARED ${PROJECT_SOURCE_DIR}/plugin/instanceNormalizationPlugin.cpp 
+                        ${PROJECT_SOURCE_DIR}/plugin/preprocess.cu ${PROJECT_SOURCE_DIR}/plugin/postprocess.cu)
 target_link_libraries(myplugin nvinfer cudart)
-
 find_package(OpenCV)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
-add_executable(instanceNorm  ${PROJECT_SOURCE_DIR}/InstanceNorm2d.cpp)
-target_link_libraries(instanceNorm nvinfer)
-target_link_libraries(instanceNorm cudart)
-target_link_libraries(instanceNorm myplugin)
-target_link_libraries(real-esrgan ${OpenCV_LIBS})
+add_executable(deblurgan  ${PROJECT_SOURCE_DIR}/deblurgan.cpp)
+target_link_libraries(deblurgan nvinfer)
+target_link_libraries(deblurgan cudart)
+target_link_libraries(deblurgan myplugin)
+target_link_libraries(deblurgan ${OpenCV_LIBS})
 
 add_definitions(-O2 -pthread)
 

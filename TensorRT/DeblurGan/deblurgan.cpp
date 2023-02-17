@@ -1,10 +1,10 @@
 #include "cuda_runtime_api.h"
-#include "logging.h"
+#include "utils/logging.h"
 #include <chrono>
-#include "utils.hpp"
-
-#include "plugin/postprocess.h"
-#include "plugin/preprocess.h"
+#include "utils/utils.hpp"
+#include <opencv2/opencv.hpp>
+#include "plugin/postprocess.hpp"
+#include "plugin/preprocess.hpp"
 // data and time
 
 
@@ -12,6 +12,7 @@
 static const int INPUT_H = 720;
 static const int INPUT_W = 1280;
 static const int CHANNELS = 3;
+static const int BATCH_SIZE = 1;
 static const int INPUT_SIZE = CHANNELS * INPUT_H * INPUT_W;
 static const int OUTPUT_SIZE = INPUT_SIZE;
 
@@ -35,7 +36,7 @@ ICudaEngine* createNetEngine(unsigned int maxBatchSize, IBuilder* builder, IBuil
 
     // Custom preprocess (NHWC->NCHW, BGR->RGB, [0, 255]->[0, 1](Normalize))
 
-    Preprocess preprocess{ maxBatchSize, INPUT_C, INPUT_H, INPUT_W };
+    Preprocess preprocess{ maxBatchSize, CHANNELS, INPUT_H, INPUT_W };
     IPluginCreator* preprocess_creator = getPluginRegistry()->getPluginCreator("preprocess", "1");
     IPluginV2 *preprocess_plugin = preprocess_creator->createPlugin("preprocess_plugin", (PluginFieldCollection*)&preprocess);
     IPluginV2Layer* preprocess_layer = network->addPluginV2(&data, 1, *preprocess_plugin);
@@ -43,35 +44,35 @@ ICudaEngine* createNetEngine(unsigned int maxBatchSize, IBuilder* builder, IBuil
     ITensor* prep = preprocess_layer->getOutput(0);
     //network  add ReflectionPad2d
     int pad_size = 3;
-    ISliceLayer* reflectpad1 = network->addSlice(prep,(0, 0, -1*pad_size, -1*pad_size), (maxBatchSize , CHANNELS, INPUT_H+2*pad_size, INPUT_W+2*pad_size), (1, 1, 1, 1));
-    reflectpad1->setmode(SliceMode::kREFLECT);
+    ISliceLayer* reflectpad1 = network->addSlice(*prep,Dims{0, 0, -1*pad_size, -1*pad_size}, Dims{maxBatchSize , CHANNELS, INPUT_H+2*pad_size, INPUT_W+2*pad_size}, Dims{1, 1, 1, 1});
+    reflectpad1->setMode(SliceMode::kWRAP);//kCLAMP  tensorRT 7.3 don't have kCLAMP , if  over tensorRT 8.0.use kCLAMP
     ITensor* reflect_out = reflectpad1->getOutput(0);
 
     //add conv-IN-relu 输入参数第三个为输入 data第四个为输出channel数 第五个位卷积核大小，第六个为卷积步长，第七个为pad size第八个为 wts中索引值
-    ITensor* out_conv1 = convInLeaky(network, weightMap, reflect_out, 64, 7, 1, 0, 1, "");
+    ITensor* out_conv1 = convInLeaky(network, weightMap, reflect_out, 64, 7, 1, 0, 1, "model");
 
-    ITensor* out_conv2 = convInLeaky(network, weightMap, out_conv1, 128, 3, 2, 1, 4, "");
+    ITensor* out_conv2 = convInLeaky(network, weightMap, out_conv1, 128, 3, 2, 1, 4, "model");
 
-    ITensor* out_conv3 = convInLeaky(network, weightMap, out_conv2, 256, 3, 2, 1, 7, "");
+    ITensor* out_conv3 = convInLeaky(network, weightMap, out_conv2, 256, 3, 2, 1, 7, "model");
 
     // resnetblock 
     ITensor* resout = out_conv3;
-    for(int i=0; i< 9, i++)
+    for(int i=0; i< 9; i++)
     {
         resout = ResBlock(network, weightMap, resout, 10+i);
     }
-    ITensor* convTran_out = convTranInLeaky(network, weightMap, resout,128, 3, 2 , 1, 19);
+    ITensor* convTran_out = convTranInLeaky(network, weightMap, resout,128, 3, 2 , 1, 19, "model");
     //Todo out_padding
-    ITensor* convTran_out2 = convTranInLeaky(network, weightMap, convTran_out,64, 3, 2 , 1, 22);
+    ITensor* convTran_out2 = convTranInLeaky(network, weightMap, convTran_out,64, 3, 2 , 1, 22, "model");
 
     //Dims3
     auto const tensor_shape = convTran_out2->getDimensions(); 
-    int pad_size = 3;
-    ISliceLayer* reflectpad2 = network->addSlice(prep,(0, 0, -1*pad_size, -1*pad_size), (tensor_shape.d[0] , tensor_shape.d[1], tensor_shape.d[2]+2*pad_size, tensor_shape.d[3]+2*pad_size), (1, 1, 1, 1));
-    reflectpad2->setmode(SliceMode::kREFLECT);
+    pad_size = 3;
+    ISliceLayer* reflectpad2 = network->addSlice(*convTran_out2,Dims{0, 0, -1*pad_size, -1*pad_size}, Dims{tensor_shape.d[0] , tensor_shape.d[1], tensor_shape.d[2]+2*pad_size, tensor_shape.d[3]+2*pad_size}, Dims{1, 1, 1, 1});
+    reflectpad2->setMode(SliceMode::kWRAP);//kCLAMP  tensorRT 7.3 don't have kCLAMP , if  over tensorRT 8.0.use kCLAMP
     ITensor* reflect_out2 = reflectpad2->getOutput(0);
-    IConvolutionLayer* conv26 = network->addConvolutionNd(reflect_out2, 3, DimsHW{7, 7}, weightMap["26.weight"], weightMap["26.bias"]);
-    auto lr = network->addActivation(conv26->getOutput(0), ActivationType::kTANH);
+    IConvolutionLayer* conv26 = network->addConvolutionNd(*reflect_out2, 3, DimsHW{7, 7}, weightMap["26.weight"], weightMap["26.bias"]);
+    auto lr = network->addActivation(*conv26->getOutput(0), ActivationType::kTANH);
     ITensor* out = lr->getOutput(0);
 
     Postprocess postprocess{ maxBatchSize, out->getDimensions().d[0], out->getDimensions().d[1], out->getDimensions().d[2] };
@@ -113,7 +114,7 @@ void APIToModel(unsigned int maxBatchSize, IHostMemory** modelStream, std::strin
     builder->destroy();
 }
 
-void doInference(IExecutionContext& context, float* input, float* output, int batchSize)
+void doInference(IExecutionContext& context, uint8_t* input, uint8_t* output, int batchSize)
 {
     const ICudaEngine& engine = context.getEngine();
 
@@ -122,18 +123,18 @@ void doInference(IExecutionContext& context, float* input, float* output, int ba
     const int inputIndex = engine.getBindingIndex(INPUT_BLOB_NAME);
     const int outputIndex = engine.getBindingIndex(OUTPUT_BLOB_NAME);
     // Create GPU buffers on device
-    CUDA_CHECK(cudaMalloc(&buffers[inputIndex], batchSize * INPUT_H * INPUT_W * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&buffers[outputIndex], batchSize * OUTPUT_SIZE * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&buffers[inputIndex], batchSize * INPUT_SIZE * sizeof(uint8_t)));
+    CUDA_CHECK(cudaMalloc(&buffers[outputIndex], batchSize * OUTPUT_SIZE * sizeof(uint8_t)));
     // Create stream
     cudaStream_t stream;
     CUDA_CHECK(cudaStreamCreate(&stream));
     // DMA input batch data to device, infer on the batch asynchronously, and DMA output back to host
 
-    CUDA_CHECK(cudaMemcpyAsync(buffers[inputIndex], input, batchSize * INPUT_H * INPUT_W * sizeof(float), cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(buffers[inputIndex], input, batchSize * INPUT_SIZE * sizeof(uint8_t), cudaMemcpyHostToDevice, stream));
     //input传给 buffers[inputIndex]  送入device上去 
 
     context.enqueue(batchSize, buffers, stream, nullptr);
-    CUDA_CHECK(cudaMemcpyAsync(output, buffers[outputIndex], batchSize * OUTPUT_SIZE * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaMemcpyAsync(output, buffers[outputIndex], batchSize * OUTPUT_SIZE * sizeof(uint8_t), cudaMemcpyDeviceToHost, stream));
     //buffers[outputIndex] 传给output 传回host
     cudaStreamSynchronize(stream);
     //等待这个异步 stream 执行完毕（TRT 的前向预测执行是异步的，）
@@ -155,12 +156,14 @@ int main(int argc, char** argv)
     // create a model using the API directly and serialize it to a stream
     char *trtModelStream{nullptr};
     size_t size{0};
-
+    std::string img_dir;
+    std::string engine_name;
+    std::string wts_name;
     if (std::string(argv[1]) == "-s" && argc == 4) {
         IHostMemory* modelStream{nullptr};
 
-        std::string wts_name = argv[2];
-        std::string engine_name = argv[3];
+        wts_name = argv[2];
+        engine_name = argv[3];
 
         APIToModel(1, &modelStream,wts_name);
         assert(modelStream != nullptr);
@@ -174,8 +177,8 @@ int main(int argc, char** argv)
         modelStream->destroy();
         return 1;
     } else if (std::string(argv[1]) == "-d" && argc == 4) {
-        std::string engine_name = std::string(argv[2]);
-        std::string img_dir = std::string(argv[3]);
+        engine_name = std::string(argv[2]);
+        img_dir = std::string(argv[3]);
 
         std::ifstream file(engine_name, std::ios::binary);
         if (file.good()) {
@@ -213,48 +216,29 @@ int main(int argc, char** argv)
     void* buffers[2];
     // In order to bind the buffers, we need to know the names of the input and output tensors.
     // Note that indices are guaranteed to be less than IEngine::getNbBindings()
-    const int inputIndex = engine->getBindingIndex(INPUT_BLOB_NAME);
-    const int outputIndex = engine->getBindingIndex(OUTPUT_BLOB_NAME);
-    assert(inputIndex == 0);
-    assert(outputIndex == 1);
 
-    // Create GPU buffers on device	
-    CUDA_CHECK(cudaMalloc(&buffers[inputIndex], BATCH_SIZE * INPUT_C * INPUT_H * INPUT_W * sizeof(uint8_t)));
-    CUDA_CHECK(cudaMalloc(&buffers[outputIndex], BATCH_SIZE * OUTPUT_SIZE * sizeof(uint8_t)));
-
-    std::vector<uint8_t> input(BATCH_SIZE * INPUT_H * INPUT_W * INPUT_C);
+    std::vector<uint8_t> input(BATCH_SIZE * INPUT_H * INPUT_W * CHANNELS);
     std::vector<uint8_t> outputs(BATCH_SIZE * OUTPUT_SIZE);
 
     // Create stream
-    cudaStream_t stream;
-    CUDA_CHECK(cudaStreamCreate(&stream));
-
+    
     std::vector<cv::Mat> imgs_buffer(BATCH_SIZE);
     for (int f = 0; f < file_names.size(); f++) {
 
         for (int b = 0; b < BATCH_SIZE; b++) {
             cv::Mat img = cv::imread(img_dir + "/" + file_names[f]);
             if (img.empty()) continue;
-            memcpy(input.data() + b * INPUT_H * INPUT_W * INPUT_C, img.data, INPUT_H * INPUT_W * INPUT_C);
+            memcpy(input.data() + b * INPUT_H * INPUT_W * CHANNELS, img.data, INPUT_H * INPUT_W * CHANNELS);
         }
-
-        CUDA_CHECK(cudaMemcpyAsync(buffers[inputIndex], input.data(), BATCH_SIZE * INPUT_C * INPUT_H * INPUT_W * sizeof(uint8_t), cudaMemcpyHostToDevice, stream));
-
         // Run inference
         auto start = std::chrono::system_clock::now();
-        doInference(*context, stream, (void**)buffers, outputs.data(), BATCH_SIZE);
+        doInference(*context, input.data(), outputs.data(), BATCH_SIZE);
         auto end = std::chrono::system_clock::now();
         std::cout << "inference time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << "ms" << std::endl;
     }
 
     cv::Mat frame = cv::Mat(INPUT_H , INPUT_W , CV_8UC3, outputs.data());
     cv::imwrite("../_" + file_names[0] + ".png", frame);
-
-
-    // Release stream and buffers
-    cudaStreamDestroy(stream);
-    CUDA_CHECK(cudaFree(buffers[inputIndex]));
-    CUDA_CHECK(cudaFree(buffers[outputIndex]));
     // Destroy the engine
     context->destroy();
     engine->destroy();
