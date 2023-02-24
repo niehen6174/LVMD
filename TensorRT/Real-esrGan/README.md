@@ -14,48 +14,17 @@ The Pytorch implementation is [real-esrgan](https://github.com/xinntao/Real-ESRG
 
 ## How to Run, real-esrgan as example
 
-0. prepare test image  
-```
-cd {tensorrtx}/real-esrgan/
-mkdir sample   
-cp ~/Download/OST_009.png {tensorrtx}/real-esrgan/sample
-```
-
-1. generate .wts from pytorch with .pt, or download .wts from model zoo
+build tensorrtx/real-esrgan and run
 
 ```
-git clone https://github.com/xinntao/Real-ESRGAN.git
-cd Real-ESRGAN
-pip install basicsr
-pip install facexlib
-pip install gfpgan
-pip install -r requirements.txt
-python setup.py develop
-
-// download https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth
-cp ~/RealESRGAN_x4plus.pth {xinntao}/Real-ESRGAN/experiments/pretrained_models
-
-cp {tensorrtx}/Real-ESRGAN/gen_wts.py {xinntao}/Real-ESRGAN
-cd {xinntao}/Real-ESRGAN
-python gen_wts.py
-// a file 'real-esrgan.wts' will be generated.
-```
-
-2. build tensorrtx/real-esrgan and run
-
-```
-cd {tensorrtx}/real-esrgan/
+cd {TensorRT}/real-esrgan/
 mkdir build
 cd build
-cp {xinntao}/Real-ESRGAN/real-esrgan.wts {tensorrtx}/real-esrgan/build
+wegt https://xsj-niehen.oss-cn-hangzhou.aliyuncs.com/lvmd/real-esrgan.wts
 cmake ..
 make
-sudo ./real-esrgan -s [.wts] [.engine]   // serialize model to plan file
-sudo ./real-esrgan -d [.engine] [image folder]  // deserialize and run inference, the images in [image folder] will be processed.
-// For example
-// sudo ./real-esrgan -s ./real-esrgan.wts ./real-esrgan_f32.engine
-// sudo ./real-esrgan -d ./real-esrgan_f32.engine ../samples
-
+./real-esrgan -s [.wts] [.engine]   // serialize model to plan file
+./real-esrgan -d [.engine] [image folder]  // deserialize and run inference, the images in [image folder] will be processed.
 ```
 
-3. check the images generated, as follows. _OST_009.png
+
