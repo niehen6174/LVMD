@@ -1,9 +1,8 @@
-#include "cuda_utils.h"
-#include "common.hpp"
+#include "common/cuda_utils.h"
+#include "common/utils.hpp"
 #include "preprocess.hpp"// preprocess plugin 
 #include "postprocess.hpp"// postprocess plugin 
-#include "logging.h"
-#include "utils.h"
+#include "common/logging.h"
 #include <unistd.h>//access()
 #include <chrono>
 

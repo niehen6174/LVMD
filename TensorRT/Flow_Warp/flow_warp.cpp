@@ -5,7 +5,7 @@
 #include <map>
 #include <vector>
 #include <chrono>
-#include "common/utils.h"
+#include "common/cuda_utils.h"
 #include "gridSamplerPlugin.h"
 
 // stuff we know about the network and the input/output blobs

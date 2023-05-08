@@ -1,7 +1,7 @@
 #pragma once
 #include <NvInfer.h>
 #include <fstream>
-#include "macros.h"
+#include "common/macros.h"
 #include <assert.h>
 
 struct Preprocess {

@@ -19,7 +19,7 @@
 
 #include "gridSampler.h"
 #include "NvInferPlugin.h"
-#include "utils/plugin.h"
+#include "common/plugin.h"
 #include <string>
 #include <vector>
 

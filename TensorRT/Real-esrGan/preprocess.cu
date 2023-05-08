@@ -1,4 +1,4 @@
-#include "cuda_utils.h"
+#include "common/cuda_utils.h"
 
 using namespace std;
 

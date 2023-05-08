@@ -1,14 +1,14 @@
 #include "NvInfer.h"
 #include "cuda_runtime_api.h"
-#include "utils/logging.h"
+#include "common/logging.h"
 #include <fstream>
 #include <map>
 #include <vector>
 #include <chrono>
 #include <algorithm>
-#include "utils/utils.h"
+#include "common/cuda_utils.h"
 #include "gridSamplerPlugin.h"
-#include "common.hpp"
+#include "utils.hpp"
 // data and time
 
 
