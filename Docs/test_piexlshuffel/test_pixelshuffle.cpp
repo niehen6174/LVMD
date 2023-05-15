@@ -22,7 +22,7 @@ static const int OUTPUT_H = INPUT_H * Scale;
 static const int OUTPUT_C = INPUT_C / (Scale * Scale);
 
 const char* INPUT_BLOB_NAME = "data";
-const char* OUTPUT_BLOB_NAME = "upsample";
+const char* OUTPUT_BLOB_NAME = "upsample_out";
 
 using namespace nvinfer1;
 
@@ -110,7 +110,7 @@ void doInference(IExecutionContext& context, float* input, float* output, int ba
     //input传给 buffers[inputIndex]  送入device上去 
 
     context.enqueue(batchSize, buffers, stream, nullptr);
-    CUDA_CHECK(cudaMemcpyAsync(output, buffers[outputIndex], batchSize * OUTPUT_W * OUTPUT_H * OUTPUT_W * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaMemcpyAsync(output, buffers[outputIndex], batchSize * OUTPUT_C * OUTPUT_H * OUTPUT_W * sizeof(float), cudaMemcpyDeviceToHost, stream));
     //buffers[outputIndex] 传给output 传回host
     cudaStreamSynchronize(stream);
     //等待这个异步 stream 执行完毕（TRT 的前向预测执行是异步的，）
@@ -175,7 +175,7 @@ int main(int argc, char** argv)
     assert(engine != nullptr);
     IExecutionContext* context = engine->createExecutionContext();
     assert(context != nullptr);
-
+    int OUTPUT_SIZE = OUTPUT_C * OUTPUT_H * OUTPUT_W;
     float output_data[OUTPUT_SIZE];
     // 概率
     
@@ -193,13 +193,13 @@ int main(int argc, char** argv)
 
     // Print histogram of the output distribution
     std::cout << "\nInput:\n\n";
-    for(int i =0;i<INPUT_H * INPUT_W;i++)
+    for(int i =0;i< INPUT_C * INPUT_H * INPUT_W;i++)
     {
         std::cout<< data[i]<<" ";
     }
     std::cout<< std::endl;
     std::cout << "\nOutput:\n\n";
-    for(int i =0;i<OUTPUT_SIZE;i++)
+    for(int i =0;i< OUTPUT_SIZE;i++)
     {
         std::cout<< output_data[i]<<" ";
     }

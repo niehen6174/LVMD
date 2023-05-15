@@ -17,7 +17,7 @@
 #include "PixelShufflePlugin.h"
 
 // 用于计算的 kernel
-__global__ void pixelShuffelKernel(const float *input, float *output, const float sacle, const int nElement, 
+__global__ void pixelShuffelKernel(const float *input, float *output, const int sacle, const int nElement, 
     const int InputChannel,const int InputHeight,const int InputWidth,const int OutputChannel,const int OutputHeight,const int OutputWidth)
 {
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -93,11 +93,10 @@ DataType PixelShufflePlugin::getOutputDataType(int32_t index, DataType const *in
 
 Dims PixelShufflePlugin::getOutputDimensions(int32_t index, Dims const *inputs, int32_t nbInputDims) noexcept
 {
-    DimsExprs output(inputs[0]);
-    output.d[0] = m_.OutputChannel;
-    output.d[1] = m_.OutputHeight;
-    output.d[2] = m_.OutputWidth;
-    return output;
+    int outputChannel = int(inputs[0].d[0] / (m_.scale * m_.scale));
+    int outputHeight = inputs[0].d[1] * m_.scale;
+    int outputWidth = inputs[0].d[2] * m_.scale;
+    return Dims3(outputChannel, outputHeight, outputWidth);
 }
 
 bool PixelShufflePlugin::supportsFormatCombination(int32_t pos, const PluginTensorDesc *inOut, int32_t nbInputs, int32_t nbOutputs) const noexcept
@@ -117,15 +116,15 @@ bool PixelShufflePlugin::supportsFormatCombination(int32_t pos, const PluginTens
 
 void PixelShufflePlugin::configurePlugin(PluginTensorDesc const *in, int32_t nbInput, PluginTensorDesc const *out, int32_t nbOutput) noexcept
 {
-    Assert(nbInput == 1);
-    Assert(nbOutput == 1);
-    Assert(in[0].desc.dims.nbDims == 4);
+    assert(nbInput == 1);
+    assert(nbOutput == 1);
+    assert(in[0].dims.nbDims == 3);
     
-    
-    m_.InputChannel = in[0].decs.dims.d[0];
-    m_.InputHeight = in[0].decs.dims.d[1];
-    m_.InputWidth = in[0].decs.dims.d[2];
-    m_.OutputChannel = m_.InputChannel / (m_.scale * m_.scale);
+    m_.scale = 2;
+    m_.InputChannel = in[0].dims.d[0];
+    m_.InputHeight = in[0].dims.d[1];
+    m_.InputWidth = in[0].dims.d[2];
+    m_.OutputChannel = int(m_.InputChannel / (m_.scale * m_.scale));
     m_.OutputHeight = m_.InputHeight * m_.scale;
     m_.OutputWidth = m_.InputWidth * m_.scale;
 
@@ -148,7 +147,7 @@ int32_t PixelShufflePlugin::enqueue(int32_t batchSize, void const *const *inputs
     int  nElement = batchSize * m_.nElement;
     dim3 grid(CEIL_DIVIDE(nElement, 256), 1, 1), block(256, 1, 1);
     pixelShuffelKernel<<<grid, block, 0, stream>>>(reinterpret_cast<const float *>(inputs[0]), reinterpret_cast<float *>(outputs[0]), 
-            m_.scalar, nElement, m_.InputChannel,m_.InputHeight,m_.InputWidth,m_.OutputChannel,m_.OutputHeight,m_.OutputWidth,m_.nElement);
+            m_.scale, nElement, m_.InputChannel,m_.InputHeight,m_.InputWidth,m_.OutputChannel,m_.OutputHeight,m_.OutputWidth);
     return 0;
 }
 
@@ -256,13 +255,13 @@ IPluginV2 *PixelShufflePluginCreator::createPlugin(const char *name, const Plugi
 {
     
     int scale = 0;
-    std::map<std::string, float *> parameterMap {{"scale", &scale}};
+    std::map<std::string, int *> parameterMap {{"scale", &scale}};
 
     for (int i = 0; i < fc->nbFields; ++i)
     {
         if (parameterMap.find(fc->fields[i].name) != parameterMap.end())
         {
-            *parameterMap[fc->fields[i].name] = *reinterpret_cast<const float *>(fc->fields[i].data);
+            *parameterMap[fc->fields[i].name] = *reinterpret_cast<const int *>(fc->fields[i].data);
         }
     }
     return new PixelShufflePlugin(name, scale);

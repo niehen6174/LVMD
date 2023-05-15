@@ -61,3 +61,8 @@ print("Output shape: ", output_tensor.shape)
 # O2 = PS2(I, r)
 # print(O.shape)
 # print(O2.shape)
+
+test_data = np.arange(0,400)
+test_data = test_data.reshape(1, 4, 10, 10)
+print(test_data)
+print(pixel_shuffle(test_data, 2))

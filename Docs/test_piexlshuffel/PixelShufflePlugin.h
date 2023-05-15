@@ -21,7 +21,7 @@
 #include "NvInfer.h"
 #include "macros.h"
 #include "utils.h"
-
+#include <assert.h>
 
 
 namespace nvinfer1
