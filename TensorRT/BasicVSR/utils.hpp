@@ -122,15 +122,46 @@ ITensor* BasicModule(INetworkDefinition *network, std::map<std::string, Weights>
 // self.conv_last = nn.Conv2d(64, 3, 3, 1, 1)
 // self.img_upsample = nn.Upsample(
 //     scale_factor=4, mode='bilinear', align_corners=False)
-ITensor* UpsampleBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x){
-    IConvolutionLayer* fusion = network->addConvolutionNd(*x, mid_channels, DimsHW{ 1, 1 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
+ITensor* UpsampleBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int Scale){
+    IConvolutionLayer* fusion = network->addConvolutionNd(*x, 2 * mid_channels, DimsHW{ 1, 1 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
                                                             weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]);
-    conv_1->setStrideNd(DimsHW{ 1, 1 });
-    ITensor* out1 = conv_1->getOutput(0);
-    //add conv2 
+    fusion->setStrideNd(DimsHW{ 1, 1 });
+    fusion->setPaddingNd(DimsHW{ 1, 1 });
+    IActivationLayer* leaky_relu_1 = network->addActivation(*fusion->getOutput(0), ActivationType::kRELU );
+    // PixelShufflePack1
+    IConvolutionLayer* upsample_conv1 = network->addConvolutionNd(*leaky_relu_1->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
+                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    upsample_conv1->setStrideNd(DimsHW{ 1, 1 });
+    upsample_conv1->setPaddingNd(DimsHW{ 1, 1 });
+    IPluginCreator* pixelshuffle_creator = getPluginRegistry()->getPluginCreator("pixelshuffle_Plugin", "1");
+    std::vector<nvinfer1::PluginField> f;
+    f.emplace_back("scale", &Scale, nvinfer1::PluginFieldType::kINT32, 1);
+    nvinfer1::PluginFieldCollection fc;
+    fc.nbFields = f.size();
+    fc.fields = f.data();
+    IPluginV2 *pixelshuffle_plugin = pixelshuffle_creator->createPlugin("pixelshuffle", &fc);
+    IPluginV2Layer* pixelshuffle_layer1 = network->addPluginV2(*upsample_conv1->getOutput(0), 1, *pixelshuffle_plugin);
+    IActivationLayer* leaky_relu_2 = network->addActivation(*pixelshuffle_layer1->getOutput(0), ActivationType::kRELU );
 
+    // PixelShufflePack2
+    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*leaky_relu_2->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
+                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    upsample_conv2->setStrideNd(DimsHW{ 1, 1 });
+    upsample_conv2->setPaddingNd(DimsHW{ 1, 1 });
+    
+    IPluginV2Layer* pixelshuffle_layer2 = network->addPluginV2(*upsample_conv2->getOutput(0), 1, *pixelshuffle_plugin);
+    IActivationLayer* leaky_relu_3 = network->addActivation(*pixelshuffle_layer2->getOutput(0), ActivationType::kRELU );
+
+    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*leaky_relu_3->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
+                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    
+    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*pixelshuffle_layer1->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
+                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    upsample_conv2->setStrideNd(DimsHW{ 1, 1 });
+    upsample_conv2->setPaddingNd(DimsHW{ 1, 1 });
+
+    IActivationLayer* leaky_relu_4 = network->addActivation(*upsample_conv2->getOutput(0), ActivationType::kRELU );
 }
-// 二分查找 
 
 
 
