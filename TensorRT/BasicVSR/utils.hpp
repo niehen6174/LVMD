@@ -44,36 +44,32 @@ std::map<std::string, Weights> loadWeights(const std::string file) {
 
     return weightMap;
 }
-// ITensor* utils_MeanStd(INetworkDefinition* network,ITensor* input){
-//     //const float mean[3] = {0.485, 0.456, 0.406}; // rgb
-//     //const float std[3] = {0.229, 0.224, 0.225};
-//     // const float mean[1] = {0.449}; // rgb
-//     // const float std[1] = {0.226};
-//     float constant_value = 0.449f;
-//     Weights Mean{ DataType::kFLOAT, &constant_value, 1 };
-//     IConstantLayer* m = network->addConstant(Dims4{ 1, 1, 1, 1 }, Mean);
-//     IElementWiseLayer* sub_mean = network->addElementWise(*input, *m->getOutput(0), ElementWiseOperation::kDIV);
-//     return sub_mean->getOutput(0);
-//     // Weights Std{ DataType::kFLOAT, std, 3 };
-//     // //Std.values = std;
-//     // IConstantLayer* s = network->addConstant(Dims4{ 1, 3, 1, 1 }, Std);
-//     // IElementWiseLayer* std_mean = network->addElementWise(*sub_mean->getOutput(0), *s->getOutput(0), ElementWiseOperation::kDIV);
-//     // return std_mean->getOutput(0);
-    
-// }
 
-ITensor* ResidualBlockNoBN(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int block_idx, int mid_channels){
+ITensor* ResidualBlocksWithInputConv(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int num_blocks, int mid_channels, string block_type){
+    IConvolutionLayer* conv_1 = network->addConvolutionNd(*x, mid_channels, DimsHW{ 3, 3 }, weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv1.weight"], 
+                                                            weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv1.bias"]);
+    conv_1->setStrideNd(DimsHW{ 1, 1 });
+    IActivationLayer* leaky_relu_1 = network->addActivation(*conv_1->getOutput(0), ActivationType::kLEAKY_RELU);
+
+    ITensor* x1 = leaky_relu_1->getOutput(0);
+    for(int i = 0; i < num_blocks; i++){
+        x1 = ResidualBlockNoBN(network, weightMap, x1, i, mid_channels, block_type);
+    }
+    return x1;
+}
+
+ITensor* ResidualBlockNoBN(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int block_idx, int mid_channels, string block_type){
     //conv 1
-    IConvolutionLayer* conv_1 = network->addConvolutionNd(*x, mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]);
+    IConvolutionLayer* conv_1 = network->addConvolutionNd(*x, mid_channels, DimsHW{ 3, 3 }, weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv1.weight"], 
+                                                            weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv1.bias"]);
     conv_1->setStrideNd(DimsHW{ 1, 1 });
     conv_1->setPaddingNd(DimsHW{ 1, 1 });
     IActivationLayer* leaky_relu_1 = network->addActivation(*conv_1->getOutput(0), ActivationType::kRELU );
 
     ITensor* x1 = leaky_relu_1->getOutput(0);
     //conv 2
-    IConvolutionLayer* conv_2 = network->addConvolutionNd(*x1, mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.1.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.1.conv.bias"]);
+    IConvolutionLayer* conv_2 = network->addConvolutionNd(*x1, mid_channels, DimsHW{ 3, 3 }, weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv2.weight"], 
+                                                            weightMap["generator." + block_type + "main.2." + std::to_string(block_idx) + ".conv2.bias"]);
     conv_2->setStrideNd(DimsHW{ 1, 1 });
     conv_2->setPaddingNd(DimsHW{ 1, 1 });
     IActivationLayer* leaky_relu_2 = network->addActivation(*conv_2->getOutput(0), ActivationType::kRELU);
@@ -94,43 +90,15 @@ ITensor* ResidualBlockNoBN(INetworkDefinition *network, std::map<std::string, We
     return ew1->getOutput(0);
 }
 
-ITensor* BasicModule(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int block_idx, int mid_channels, int num_blocks){
-    //conv 1
-    IConvolutionLayer* conv_1 = network->addConvolutionNd(*x, mid_channels, DimsHW{ 1, 1 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]);
-    conv_1->setStrideNd(DimsHW{ 1, 1 });
-    conv_1->setPaddingNd(DimsHW{ 1, 1 });
-    IActivationLayer* leaky_relu_1 = network->addActivation(*conv_1->getOutput(0), ActivationType::kRELU );
-
-    ITensor* resu_input = leaky_relu_1->getOutput(0);
-    ITensor* resu_out;
-    for(int i = 0; i < num_blocks; i++){
-        resu_out = ResidualBlockNoBN(network, weightMap, resu_input, 10, 64);
-    }
-    return resu_out;
-
-}
-
-// # upsample
-// self.fusion = nn.Conv2d(
-//     mid_channels * 2, mid_channels, 1, 1, 0, bias=True)
-// self.upsample1 = PixelShufflePack(
-//     mid_channels, mid_channels, 2, upsample_kernel=3)
-// self.upsample2 = PixelShufflePack(
-//     mid_channels, 64, 2, upsample_kernel=3)
-// self.conv_hr = nn.Conv2d(64, 64, 3, 1, 1)
-// self.conv_last = nn.Conv2d(64, 3, 3, 1, 1)
-// self.img_upsample = nn.Upsample(
-//     scale_factor=4, mode='bilinear', align_corners=False)
 ITensor* UpsampleBlock(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int Scale){
-    IConvolutionLayer* fusion = network->addConvolutionNd(*x, 2 * mid_channels, DimsHW{ 1, 1 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]);
+    IConvolutionLayer* fusion = network->addConvolutionNd(*x, 2 * mid_channels, DimsHW{ 1, 1 }, weightMap["generator.fusion.weight"], 
+                                                            weightMap["generator.fusion.bias"]);
     fusion->setStrideNd(DimsHW{ 1, 1 });
     fusion->setPaddingNd(DimsHW{ 1, 1 });
-    IActivationLayer* leaky_relu_1 = network->addActivation(*fusion->getOutput(0), ActivationType::kRELU );
+    IActivationLayer* leaky_relu_1 = network->addActivation(*fusion->getOutput(0), ActivationType::kLEAKY_RELU );
     // PixelShufflePack1
-    IConvolutionLayer* upsample_conv1 = network->addConvolutionNd(*leaky_relu_1->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    IConvolutionLayer* upsample_conv1 = network->addConvolutionNd(*leaky_relu_1->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["generator.upsample1.upsample_conv.weight"], 
+                                                            weightMap["generator.upsample1.upsample_conv.bias"]); 
     upsample_conv1->setStrideNd(DimsHW{ 1, 1 });
     upsample_conv1->setPaddingNd(DimsHW{ 1, 1 });
     IPluginCreator* pixelshuffle_creator = getPluginRegistry()->getPluginCreator("pixelshuffle_Plugin", "1");
@@ -141,26 +109,29 @@ ITensor* UpsampleBlock(INetworkDefinition *network, std::map<std::string, Weight
     fc.fields = f.data();
     IPluginV2 *pixelshuffle_plugin = pixelshuffle_creator->createPlugin("pixelshuffle", &fc);
     IPluginV2Layer* pixelshuffle_layer1 = network->addPluginV2(*upsample_conv1->getOutput(0), 1, *pixelshuffle_plugin);
-    IActivationLayer* leaky_relu_2 = network->addActivation(*pixelshuffle_layer1->getOutput(0), ActivationType::kRELU );
+    IActivationLayer* leaky_relu_2 = network->addActivation(*pixelshuffle_layer1->getOutput(0), ActivationType::kLEAKY_RELU );
 
     // PixelShufflePack2
-    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*leaky_relu_2->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
+    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*leaky_relu_2->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["generator.upsample2.upsample_conv.weight"], 
+                                                            weightMap["generator.upsample2.upsample_conv.bias"]); 
     upsample_conv2->setStrideNd(DimsHW{ 1, 1 });
     upsample_conv2->setPaddingNd(DimsHW{ 1, 1 });
     
     IPluginV2Layer* pixelshuffle_layer2 = network->addPluginV2(*upsample_conv2->getOutput(0), 1, *pixelshuffle_plugin);
-    IActivationLayer* leaky_relu_3 = network->addActivation(*pixelshuffle_layer2->getOutput(0), ActivationType::kRELU );
+    IActivationLayer* leaky_relu_3 = network->addActivation(*pixelshuffle_layer2->getOutput(0), ActivationType::kLEAKY_RELU );
 
-    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*leaky_relu_3->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
-    
-    IConvolutionLayer* upsample_conv2 = network->addConvolutionNd(*pixelshuffle_layer1->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.weight"], 
-                                                            weightMap["basic_module." + std::to_string(block_idx) + ".basic_module.0.conv.bias"]); 
-    upsample_conv2->setStrideNd(DimsHW{ 1, 1 });
-    upsample_conv2->setPaddingNd(DimsHW{ 1, 1 });
-
-    IActivationLayer* leaky_relu_4 = network->addActivation(*upsample_conv2->getOutput(0), ActivationType::kRELU );
+    // conv_hr
+    IConvolutionLayer* conv_hr = network->addConvolutionNd(*leaky_relu_3->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["generator.conv_hr.weight"], 
+                                                            weightMap["generator.conv_hr.bias"]);
+    IActivationLayer* leaky_relu_4 = network->addActivation(*conv_hr->getOutput(0), ActivationType::kLEAKY_RELU );
+    // conv_last
+    IConvolutionLayer* conv_last = network->addConvolutionNd(*leaky_relu_4->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["generator.conv_last.weight"], 
+                                                            weightMap["generator.conv_last.bais"]);
+    // IResizeLayer* img_upsample = network->addResize(*conv_last->getOutput(0));
+    // img_upsample->setResizeMode(ResizeMode::kBILINEAR);
+    // const float sclaes[] = { 1, 1, 2, 2 };
+    // img_upsample ->setScales(sclaes, 4);
+    return conv_last->getOutput(0);
 }
 
 
