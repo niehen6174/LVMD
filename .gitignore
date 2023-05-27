@@ -30,5 +30,7 @@
 *.exe
 *.out
 *.app
+*.wts
+*.pth
 build/
 .vscode/*

@@ -48,7 +48,7 @@ ITensor* BasicModule(INetworkDefinition *network, std::map<std::string, Weights>
     return x5;
 
 }
-ITensor* SpyNet(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* x, int block_idx){
+ITensor* SpyNet(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor* ref, ITensor* supp){
     const float mean[3] = {0.485, 0.456, 0.406}; // rgb
     const float std[3] = {0.229, 0.224, 0.225};
     Weights Mean{ DataType::kFLOAT, mean, 3 };
@@ -62,8 +62,6 @@ ITensor* SpyNet(INetworkDefinition *network, std::map<std::string, Weights>& wei
     IElementWiseLayer* std_mean_supp = network->addElementWise(*sub_mean_supp->getOutput(0), *s->getOutput(0), ElementWiseOperation::kDIV);
     ITensor* pre_ref = std_mean_ref->getOutput(0);
     ITensor* pre_supp = std_mean_supp->getOutput(0);
-
- 
 
     std::vector<ITensor*> ref_list{pre_ref};
     std::vector<ITensor*> supp_list{pre_supp};

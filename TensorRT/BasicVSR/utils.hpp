@@ -127,10 +127,7 @@ ITensor* UpsampleBlock(INetworkDefinition *network, std::map<std::string, Weight
     // conv_last
     IConvolutionLayer* conv_last = network->addConvolutionNd(*leaky_relu_4->getOutput(0), mid_channels, DimsHW{ 3, 3 }, weightMap["generator.conv_last.weight"], 
                                                             weightMap["generator.conv_last.bais"]);
-    // IResizeLayer* img_upsample = network->addResize(*conv_last->getOutput(0));
-    // img_upsample->setResizeMode(ResizeMode::kBILINEAR);
-    // const float sclaes[] = { 1, 1, 2, 2 };
-    // img_upsample ->setScales(sclaes, 4);
+    
     return conv_last->getOutput(0);
 }
 
